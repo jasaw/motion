@@ -56,6 +56,7 @@ struct ffmpeg {
     int test_mode;
     int gop_cnt;
     struct timeval start_time;
+    int zerocopy;
 };
 
 

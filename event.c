@@ -735,6 +735,13 @@ static void event_ffmpeg_newfile(struct context *cnt,
         cnt->ffmpeg_output->last_pts = -1;
         cnt->ffmpeg_output->base_pts = 0;
         cnt->ffmpeg_output->gop_cnt = 0;
+#ifdef HAVE_MMAL
+        if (cnt->zerocopy_enabled) {
+            cnt->ffmpeg_output->zerocopy = 1;
+        } else {
+            cnt->ffmpeg_output->zerocopy = 0;
+        }
+#endif
         cnt->ffmpeg_output->codec_name = codec;
         if (strcmp(cnt->conf.ffmpeg_video_codec, "test") == 0) {
             cnt->ffmpeg_output->test_mode = 1;
@@ -766,6 +773,13 @@ static void event_ffmpeg_newfile(struct context *cnt,
         cnt->ffmpeg_output_debug->last_pts = -1;
         cnt->ffmpeg_output_debug->base_pts = 0;
         cnt->ffmpeg_output_debug->gop_cnt = 0;
+#ifdef HAVE_MMAL
+        if (cnt->zerocopy_enabled) {
+            cnt->ffmpeg_output_debug->zerocopy = 1;
+        } else {
+            cnt->ffmpeg_output_debug->zerocopy = 0;
+        }
+#endif
         cnt->ffmpeg_output_debug->codec_name = codec;
         if (strcmp(cnt->conf.ffmpeg_video_codec, "test") == 0) {
             cnt->ffmpeg_output_debug->test_mode = 1;
@@ -823,6 +837,13 @@ static void event_ffmpeg_timelapse(struct context *cnt,
         cnt->ffmpeg_timelapse->base_pts = 0;
         cnt->ffmpeg_timelapse->test_mode = 0;
         cnt->ffmpeg_timelapse->gop_cnt = 0;
+#ifdef HAVE_MMAL
+        if (cnt->zerocopy_enabled) {
+            cnt->ffmpeg_timelapse->zerocopy = 1;
+        } else {
+            cnt->ffmpeg_timelapse->zerocopy = 0;
+        }
+#endif
 
         if ((strcmp(cnt->conf.ffmpeg_video_codec,"mpg") == 0) ||
             (strcmp(cnt->conf.ffmpeg_video_codec,"swf") == 0) ){

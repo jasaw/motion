@@ -141,6 +141,7 @@ struct config conf_template = {
 #ifdef HAVE_MMAL
     mmalcam_name:                   NULL,
     mmalcam_control_params:         NULL,
+    .zerocopy =                     0,
 #endif
     .text_changes =                    0,
     .text_left =                       NULL,
@@ -432,6 +433,14 @@ config_param config_params[] = {
     CONF_OFFSET(mmalcam_control_params),
     copy_string,
     print_string
+    },
+    {
+    "zerocopy",
+    "# avoid copying frames (default: off)",
+    0,
+    CONF_OFFSET(zerocopy),
+    copy_bool,
+    print_bool
     },
 #endif
     {

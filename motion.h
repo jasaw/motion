@@ -264,6 +264,8 @@ struct image_data {
     struct coord location;      /* coordinates for center and size of last motion detection*/
 
     int total_labels;
+
+    void *image_buffer_header;
 };
 
 /*
@@ -387,6 +389,7 @@ struct context {
     struct netcam_context *netcam;
 #ifdef HAVE_MMAL
     struct mmalcam_context *mmalcam;
+    int zerocopy_enabled;
 #endif
 
     struct image_data *current_image;        /* Pointer to a structure where the image, diffs etc is stored */

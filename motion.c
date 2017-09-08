@@ -111,6 +111,16 @@ static void image_ring_resize(struct context *cnt, int new_size)
                 memcpy(tmp, cnt->imgs.image_ring, sizeof(struct image_data) * smallest);
 
 
+#ifdef HAVE_MMAL
+            if (cnt->zerocopy_enabled) {
+                int i;
+                for(i = smallest; i < new_size; i++) {
+                    tmp[i].image_buffer_header = NULL;
+                    tmp[i].image = NULL;
+                }
+            }
+            else
+#endif
             /* In the new buffers, allocate image memory */
             {
                 int i;
@@ -155,8 +165,18 @@ static void image_ring_destroy(struct context *cnt)
         return;
 
     /* Free all image buffers */
-    for (i = 0; i < cnt->imgs.image_ring_size; i++)
-        free(cnt->imgs.image_ring[i].image);
+    for (i = 0; i < cnt->imgs.image_ring_size; i++) {
+#ifdef HAVE_MMAL
+        if (cnt->zerocopy_enabled) {
+            if (cnt->imgs.image_ring[i].image_buffer_header != NULL) {
+                mmalcam_release_buffer_header(cnt->imgs.image_ring[i].image_buffer_header, &cnt->imgs.image_ring[i].image);
+                cnt->imgs.image_ring[i].image_buffer_header = NULL;
+            }
+        }
+        else
+#endif
+            free(cnt->imgs.image_ring[i].image);
+    }
 
 
     /* Free the ring */
@@ -901,6 +921,24 @@ static int motion_init(struct context *cnt)
         return -3;
     }
 
+#ifdef HAVE_MMAL
+    cnt->zerocopy_enabled = 0;
+    if (cnt->conf.zerocopy) {
+        int zerocopy_supported = 0;
+#ifdef HAVE_FFMPEG
+        size_t codec_name_len = strcspn(cnt->conf.ffmpeg_video_codec, ":");
+        if (cnt->camera_type == CAMERA_TYPE_MMAL) {
+            if (cnt->conf.ffmpeg_video_codec[codec_name_len]) {
+                if (strcmp(&cnt->conf.ffmpeg_video_codec[codec_name_len+1], "h264_omx") == 0)
+                    zerocopy_supported = 1;
+            }
+        }
+#endif // HAVE_FFMPEG
+        if (zerocopy_supported)
+            cnt->zerocopy_enabled = 1;
+    }
+#endif // HAVE_MMAL
+
     image_ring_resize(cnt, 1); /* Create a initial precapture ring buffer with 1 frame */
 
     cnt->imgs.ref = mymalloc(cnt->imgs.size);
@@ -955,7 +993,7 @@ static int motion_init(struct context *cnt)
         int i;
 
         for (i = 0; i < 5; i++) {
-            if (vid_next(cnt, cnt->imgs.image_virgin) == 0)
+            if (vid_next(cnt, &cnt->imgs.image_virgin, NULL) == 0)
                 break;
             SLEEP(2, 0);
         }
@@ -1613,9 +1651,17 @@ static int mlp_capture(struct context *cnt){
      * <0 = fatal error - leave the thread by breaking out of the main loop
      * >0 = non fatal error - copy last image or show grey image with message
      */
-    if (cnt->video_dev >= 0)
-        vid_return_code = vid_next(cnt, cnt->current_image->image);
-    else
+    if (cnt->video_dev >= 0) {
+#ifdef HAVE_MMAL
+        if (cnt->zerocopy_enabled) {
+            if (cnt->current_image->image_buffer_header) {
+                mmalcam_release_buffer_header(cnt->current_image->image_buffer_header, &cnt->current_image->image);
+                cnt->current_image->image_buffer_header = NULL;
+            }
+        }
+#endif
+        vid_return_code = vid_next(cnt, &cnt->current_image->image, &cnt->current_image->image_buffer_header);
+    } else
         vid_return_code = 1; /* Non fatal error */
 
     // VALID PICTURE
@@ -1651,6 +1697,20 @@ static int mlp_capture(struct context *cnt){
             cnt->timenow = tv1.tv_usec + 1000000L * tv1.tv_sec;
         }
     // FATAL ERROR - leave the thread by breaking out of the main loop
+#ifdef HAVE_MMAL
+    } else if (cnt->zerocopy_enabled) {
+        /* Die Die Die */
+        MOTION_LOG(ERR, TYPE_ALL, NO_ERRNO, "MMAL camera with zerocopy error - Closing video device");
+        vid_close(cnt);
+        /*
+         * Use virgin image, if we are not able to open it again next loop
+         * a gray image with message is applied
+         * flag lost_connection
+         */
+        // FIXME: what to do here?
+        //memcpy(cnt->current_image->image_buffer.image, cnt->imgs.image_virgin.image, cnt->imgs.size);
+        cnt->lost_connection = 1;
+#endif
     } else if (vid_return_code < 0) {
         /* Fatal error - Close video device */
         MOTION_LOG(ERR, TYPE_ALL, NO_ERRNO, "Video device fatal error - Closing video device");

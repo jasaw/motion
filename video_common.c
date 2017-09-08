@@ -691,7 +691,7 @@ int vid_start(struct context *cnt)
  *    with bit 0 set            Non fatal V4L error (copy grey image and discard this image)
  *    with bit 1 set            Non fatal Netcam error
  */
-int vid_next(struct context *cnt, unsigned char *map)
+int vid_next(struct context *cnt, unsigned char **map, void **priv_data)
 {
 
 #ifdef HAVE_MMAL
@@ -699,7 +699,7 @@ int vid_next(struct context *cnt, unsigned char *map)
         if (cnt->mmalcam == NULL) {
             return NETCAM_GENERAL_ERROR;
         }
-        return mmalcam_next(cnt, map);
+        return mmalcam_next(cnt, map, priv_data);
     }
 #endif
 
@@ -707,15 +707,15 @@ int vid_next(struct context *cnt, unsigned char *map)
         if (cnt->video_dev == -1)
             return NETCAM_GENERAL_ERROR;
 
-        return netcam_next(cnt, map);
+        return netcam_next(cnt, *map);
     }
 
     if (cnt->camera_type == CAMERA_TYPE_V4L2) {
-        return v4l2_next(cnt, map);
+        return v4l2_next(cnt, *map);
    }
 
     if (cnt->camera_type == CAMERA_TYPE_BKTR) {
-        return bktr_next(cnt, map);
+        return bktr_next(cnt, *map);
     }
 
     return -2;

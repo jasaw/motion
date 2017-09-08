@@ -361,7 +361,9 @@ static int ffmpeg_encode_video(struct ffmpeg *ffmpeg){
     ffmpeg->pkt.data = NULL;
     ffmpeg->pkt.size = 0;
 
+    MOTION_LOG(NTC, TYPE_ENCODER, NO_ERRNO, "calling avcodec_send_frame: image ptr %p", ffmpeg->picture->data[0]);
     retcd = avcodec_send_frame(ffmpeg->ctx_codec, ffmpeg->picture);
+    MOTION_LOG(NTC, TYPE_ENCODER, NO_ERRNO, "avcodec_send_frame done");
     if (retcd < 0 ){
         av_strerror(retcd, errstr, sizeof(errstr));
         MOTION_LOG(ERR, TYPE_ENCODER, NO_ERRNO, "Error sending frame for encoding:%s",errstr);
@@ -582,6 +584,8 @@ static int ffmpeg_set_quality(struct ffmpeg *ffmpeg){
                 ffmpeg->vbr = 4000;
             ffmpeg->ctx_codec->profile = FF_PROFILE_H264_HIGH;
             ffmpeg->ctx_codec->bit_rate = ffmpeg->vbr;
+            if (ffmpeg->zerocopy)
+                av_dict_set(&ffmpeg->opts, "zerocopy", "1", 0);
         } else {
             // Control other H264 encoders quality via CRF
             char crf[4];

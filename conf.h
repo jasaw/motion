@@ -131,6 +131,7 @@ struct config {
 #ifdef HAVE_MMAL
     const char *mmalcam_name;
     const char *mmalcam_control_params;
+    int zerocopy;
 #endif
     int text_changes;
     const char *text_left;
