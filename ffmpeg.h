@@ -44,6 +44,12 @@ enum USER_CODEC {
 #endif // HAVE_FFMPEG
 
 #ifdef HAVE_FFMPEG
+#define DEBUG_BUF_SIZE  32
+struct debug_buffer_t {
+    int64_t pts;
+    int keyframe;
+};
+
 struct ffmpeg {
     AVFormatContext *oc;
     AVStream *video_st;
@@ -72,6 +78,11 @@ struct ffmpeg {
     enum USER_CODEC     preferred_codec;
     char *nal_info;
     int  nal_info_len;
+    int iframe_count;
+    struct debug_buffer_t input_frames[DEBUG_BUF_SIZE];
+    int input_frame_index;
+    struct debug_buffer_t output_frames[DEBUG_BUF_SIZE];
+    int output_frame_index;
 };
 #else
 struct ffmpeg {

@@ -408,12 +408,29 @@ static int ffmpeg_get_oformat(struct ffmpeg *ffmpeg){
     return 0;
 }
 
+static int ffmpeg_write_packet(struct ffmpeg *ffmpeg){
+    if (ffmpeg->tlapse == TIMELAPSE_APPEND) {
+        return ffmpeg_timelapse_append(ffmpeg, ffmpeg->pkt);
+    } else {
+        return av_write_frame(ffmpeg->oc, &ffmpeg->pkt);
+    }
+}
+
 static int ffmpeg_encode_video(struct ffmpeg *ffmpeg){
 
 #if (LIBAVFORMAT_VERSION_MAJOR >= 58) || ((LIBAVFORMAT_VERSION_MAJOR == 57) && (LIBAVFORMAT_VERSION_MINOR >= 41))
     //ffmpeg version 3.1 and after
     int retcd = 0;
     char errstr[128];
+
+    ffmpeg->input_frames[ffmpeg->input_frame_index].pts = ffmpeg->picture->pts;
+    if (ffmpeg->picture->key_frame)
+        ffmpeg->input_frames[ffmpeg->input_frame_index].keyframe = 1;
+    else
+        ffmpeg->input_frames[ffmpeg->input_frame_index].keyframe = 0;
+    ffmpeg->input_frame_index++;
+    if (ffmpeg->input_frame_index >= DEBUG_BUF_SIZE)
+        ffmpeg->input_frame_index = 0;
 
     retcd = avcodec_send_frame(ffmpeg->ctx_codec, ffmpeg->picture);
     if (retcd < 0 ){
@@ -422,25 +439,72 @@ static int ffmpeg_encode_video(struct ffmpeg *ffmpeg){
             ,_("Error sending frame for encoding:%s"),errstr);
         return -1;
     }
-    retcd = avcodec_receive_packet(ffmpeg->ctx_codec, &ffmpeg->pkt);
-    if (retcd == AVERROR(EAGAIN)){
-        //Buffered packet.  Throw special return code
-        av_strerror(retcd, errstr, sizeof(errstr));
-        MOTION_LOG(DBG, TYPE_ENCODER, NO_ERRNO
-            ,_("Receive packet threw EAGAIN returning -2 code :%s"),errstr);
-        my_packet_unref(ffmpeg->pkt);
-        return -2;
-    }
-    if (retcd < 0 ){
-        av_strerror(retcd, errstr, sizeof(errstr));
-        MOTION_LOG(ERR, TYPE_ENCODER, NO_ERRNO
-            ,_("Error receiving encoded packet video:%s"),errstr);
-        //Packet is freed upon failure of encoding
-        return -1;
-    }
+    while (retcd >= 0) {
+        av_init_packet(&ffmpeg->pkt);
+        ffmpeg->pkt.data = NULL;
+        ffmpeg->pkt.size = 0;
+        retcd = avcodec_receive_packet(ffmpeg->ctx_codec, &ffmpeg->pkt);
+        if (retcd == AVERROR(EAGAIN)){
+            //Buffered packet.  Throw special return code
+            my_packet_unref(ffmpeg->pkt);
+            return -2;
+        }
+        if (retcd < 0 ){
+            av_strerror(retcd, errstr, sizeof(errstr));
+            MOTION_LOG(ERR, TYPE_ENCODER, NO_ERRNO, "Error receiving encoded packet video:%s",errstr);
+            my_packet_unref(ffmpeg->pkt);
+            return -1;
+        } else {
+            ffmpeg->output_frames[ffmpeg->output_frame_index].pts = ffmpeg->pkt.pts;
+            if (ffmpeg->pkt.flags & AV_PKT_FLAG_KEY) {
+                ffmpeg->iframe_count++;
+                ffmpeg->output_frames[ffmpeg->output_frame_index].keyframe = 1;
+            } else {
+                ffmpeg->iframe_count = 0;
+                ffmpeg->output_frames[ffmpeg->output_frame_index].keyframe = 0;
+            }
+            ffmpeg->output_frame_index++;
+            if (ffmpeg->output_frame_index >= DEBUG_BUF_SIZE)
+                ffmpeg->output_frame_index = 0;
 
-    if (ffmpeg->preferred_codec == USER_CODEC_V4L2M2M){
-        ffmpeg_encode_nal(ffmpeg);
+            if (ffmpeg->iframe_count == 10) {
+                char *dumpfile = malloc(strlen(ffmpeg->filename)+5);
+                if (dumpfile) {
+                    strcpy(dumpfile, ffmpeg->filename);
+                    strcat(dumpfile, ".txt");
+                    FILE *fptr = fopen(dumpfile,"w");
+                    if (fptr) {
+                        int i;
+                        fprintf(fptr, "In frame:\t\t\tOut frame:\n");
+                        for (i = 0; i < DEBUG_BUF_SIZE; i++) {
+                            int inidx = ffmpeg->input_frame_index + i;
+                            int outidx = ffmpeg->output_frame_index + i;
+                            if (inidx >= DEBUG_BUF_SIZE)
+                                inidx -= DEBUG_BUF_SIZE;
+                            if (outidx >= DEBUG_BUF_SIZE)
+                                outidx -= DEBUG_BUF_SIZE;
+                            fprintf(fptr, "%12lld\t%s\t\t%12lld\t%s\n",
+                                    ffmpeg->input_frames[inidx].pts, (ffmpeg->input_frames[inidx].keyframe)?"I":"P",
+                                    ffmpeg->output_frames[outidx].pts, (ffmpeg->output_frames[outidx].keyframe)?"I":"P");
+                        }
+                        fprintf(fptr, "\n");
+                        fclose(fptr);
+                    }
+                    free(dumpfile);
+                }
+            }
+
+            if (ffmpeg->preferred_codec == USER_CODEC_V4L2M2M){
+                ffmpeg_encode_nal(ffmpeg);
+            }
+            if (ffmpeg_write_packet(ffmpeg) < 0) {
+                MOTION_LOG(ERR, TYPE_ENCODER, NO_ERRNO, "Error while writing video frame");
+                my_packet_unref(ffmpeg->pkt);
+                ffmpeg_free_context(ffmpeg);
+                return -1;
+            }
+        }
+        my_packet_unref(ffmpeg->pkt);
     }
 
     return 0;
@@ -451,11 +515,15 @@ static int ffmpeg_encode_video(struct ffmpeg *ffmpeg){
     char errstr[128];
     int got_packet_ptr;
 
+    av_init_packet(&ffmpeg->pkt);
+    ffmpeg->pkt.data = NULL;
+    ffmpeg->pkt.size = 0;
+
     retcd = avcodec_encode_video2(ffmpeg->ctx_codec, &ffmpeg->pkt, ffmpeg->picture, &got_packet_ptr);
     if (retcd < 0 ){
         av_strerror(retcd, errstr, sizeof(errstr));
         MOTION_LOG(ERR, TYPE_ENCODER, NO_ERRNO, _("Error encoding video:%s"),errstr);
-        //Packet is freed upon failure of encoding
+        my_packet_unref(ffmpeg->pkt);
         return -1;
     }
     if (got_packet_ptr == 0){
@@ -464,6 +532,15 @@ static int ffmpeg_encode_video(struct ffmpeg *ffmpeg){
         return -2;
     }
 
+    retcd = ffmpeg_write_packet(ffmpeg);
+    if (retcd < 0) {
+        MOTION_LOG(ERR, TYPE_ENCODER, NO_ERRNO, "Error while writing video frame");
+        my_packet_unref(ffmpeg->pkt);
+        ffmpeg_free_context(ffmpeg);
+        return -1;
+    }
+    my_packet_unref(ffmpeg->pkt);
+
     return 0;
 
 #else
@@ -471,6 +548,10 @@ static int ffmpeg_encode_video(struct ffmpeg *ffmpeg){
     int retcd = 0;
     uint8_t *video_outbuf;
     int video_outbuf_size;
+
+    av_init_packet(&ffmpeg->pkt);
+    ffmpeg->pkt.data = NULL;
+    ffmpeg->pkt.size = 0;
 
     video_outbuf_size = (ffmpeg->ctx_codec->width +16) * (ffmpeg->ctx_codec->height +16) * 1;
     video_outbuf = mymalloc(video_outbuf_size);
@@ -497,6 +578,17 @@ static int ffmpeg_encode_video(struct ffmpeg *ffmpeg){
     ffmpeg->pkt.pts = ffmpeg->picture->pts;
     ffmpeg->pkt.dts = ffmpeg->pkt.pts;
 
+    retcd = ffmpeg_write_packet(ffmpeg);
+    if (retcd < 0) {
+        av_strerror(retcd, errstr, sizeof(errstr));
+        MOTION_LOG(ERR, TYPE_ENCODER, NO_ERRNO, "Error while writing video frame");
+        my_packet_unref(ffmpeg->pkt);
+        free(video_outbuf);
+        ffmpeg_free_context(ffmpeg);
+        return -1;
+    }
+
+    my_packet_unref(ffmpeg->pkt);
     free(video_outbuf);
 
     return 0;
@@ -1067,14 +1159,9 @@ static int ffmpeg_flush_codec(struct ffmpeg *ffmpeg){
 static int ffmpeg_put_frame(struct ffmpeg *ffmpeg, const struct timeval *tv1){
     int retcd;
 
-    av_init_packet(&ffmpeg->pkt);
-    ffmpeg->pkt.data = NULL;
-    ffmpeg->pkt.size = 0;
-
     retcd = ffmpeg_set_pts(ffmpeg, tv1);
     if (retcd < 0) {
         //If there is an error, it has already been reported.
-        my_packet_unref(ffmpeg->pkt);
         return 0;
     }
 
@@ -1083,21 +1170,9 @@ static int ffmpeg_put_frame(struct ffmpeg *ffmpeg, const struct timeval *tv1){
         if (retcd != -2){
             MOTION_LOG(ERR, TYPE_ENCODER, NO_ERRNO, _("Error while encoding picture"));
         }
-        my_packet_unref(ffmpeg->pkt);
         return retcd;
     }
 
-    if (ffmpeg->tlapse == TIMELAPSE_APPEND) {
-        retcd = ffmpeg_timelapse_append(ffmpeg, ffmpeg->pkt);
-    } else {
-        retcd = av_write_frame(ffmpeg->oc, &ffmpeg->pkt);
-    }
-    my_packet_unref(ffmpeg->pkt);
-
-    if (retcd < 0) {
-        MOTION_LOG(ERR, TYPE_ENCODER, NO_ERRNO, _("Error while writing video frame"));
-        return -1;
-    }
     return retcd;
 
 }
