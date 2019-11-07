@@ -17,6 +17,12 @@
 #define MAX2(x, y) ((x) > (y) ? (x) : (y))
 #define MAX3(x, y, z) ((x) > (y) ? ((x) > (z) ? (x) : (z)) : ((y) > (z) ? (y) : (z)))
 
+#define CLIP(X) ( (X) > 255 ? 255 : (X) < 0 ? 0 : X)
+// RGB -> YCbCr
+#define CRGB2Y(R, G, B)  CLIP((19595 * R + 38470 * G + 7471 * B ) >> 16)
+#define CRGB2Cb(R, G, B) CLIP((36962 * (B - CLIP((19595 * R + 38470 * G + 7471 * B ) >> 16) ) >> 16) + 128)
+#define CRGB2Cr(R, G, B) CLIP((46727 * (R - CLIP((19595 * R + 38470 * G + 7471 * B ) >> 16) ) >> 16) + 128)
+
 /**
  * alg_locate_center_size
  *      Locates the center and size of the movement.
@@ -345,6 +351,123 @@ void alg_draw_red_location(struct coord *cent, struct images *imgs, int width, u
         }
     }
 }
+
+static inline void alg_clip_pos_to_image_size(int *xpos, int *ypos, int width, int height)
+{
+    if (*xpos < 0)
+        *xpos = 0;
+    else if (*xpos > width - 1)
+        *xpos = width - 1;
+
+    if (*ypos < 0)
+        *ypos = 0;
+    else if (*ypos > height - 1)
+        *ypos = height - 1;
+}
+
+static void alg_overlay_alt_detect_result(unsigned char *yuv_image,
+                                          int width,
+                                          int height,
+                                          alt_detect_result_t *alt_detect_result)
+{
+    int i;
+    int j;
+
+    for (i = 0; i < alt_detect_result->num_objs; i++) {
+        alt_detect_obj_t *cur_obj = &alt_detect_result->objs[i];
+        for (j = 0; j < cur_obj->num_lines; j++) {
+            alt_detect_line_t *cur_line = &cur_obj->lines[j];
+            // colour
+            unsigned char colour_y = 0;
+            unsigned char colour_u = 0;
+            unsigned char colour_v = 0;
+            int tmp_id = cur_line->p[1].id % 18;
+            switch (tmp_id) {
+                case  0: colour_y = CRGB2Y(  0,  0,255); colour_u = CRGB2Cb(  0,  0,255); colour_v = CRGB2Cr(  0,  0,255); break;
+                case  1: colour_y = CRGB2Y(  0, 85,255); colour_u = CRGB2Cb(  0, 85,255); colour_v = CRGB2Cr(  0, 85,255); break;
+                case  2: colour_y = CRGB2Y(  0,170,255); colour_u = CRGB2Cb(  0,170,255); colour_v = CRGB2Cr(  0,170,255); break;
+                case  3: colour_y = CRGB2Y(  0,255,255); colour_u = CRGB2Cb(  0,255,255); colour_v = CRGB2Cr(  0,255,255); break;
+                case  4: colour_y = CRGB2Y(  0,255,170); colour_u = CRGB2Cb(  0,255,170); colour_v = CRGB2Cr(  0,255,170); break;
+                case  5: colour_y = CRGB2Y(  0,255, 85); colour_u = CRGB2Cb(  0,255, 85); colour_v = CRGB2Cr(  0,255, 85); break;
+                case  6: colour_y = CRGB2Y(  0,255,  0); colour_u = CRGB2Cb(  0,255,  0); colour_v = CRGB2Cr(  0,255,  0); break;
+                case  7: colour_y = CRGB2Y( 85,255,  0); colour_u = CRGB2Cb( 85,255,  0); colour_v = CRGB2Cr( 85,255,  0); break;
+                case  8: colour_y = CRGB2Y(170,255,  0); colour_u = CRGB2Cb(170,255,  0); colour_v = CRGB2Cr(170,255,  0); break;
+                case  9: colour_y = CRGB2Y(255,255,  0); colour_u = CRGB2Cb(255,255,  0); colour_v = CRGB2Cr(255,255,  0); break;
+                case 10: colour_y = CRGB2Y(255,170,  0); colour_u = CRGB2Cb(255,170,  0); colour_v = CRGB2Cr(255,170,  0); break;
+                case 11: colour_y = CRGB2Y(255, 85,  0); colour_u = CRGB2Cb(255, 85,  0); colour_v = CRGB2Cr(255, 85,  0); break;
+                case 12: colour_y = CRGB2Y(255,  0,  0); colour_u = CRGB2Cb(255,  0,  0); colour_v = CRGB2Cr(255,  0,  0); break;
+                case 13: colour_y = CRGB2Y(255,  0, 85); colour_u = CRGB2Cb(255,  0, 85); colour_v = CRGB2Cr(255,  0, 85); break;
+                case 14: colour_y = CRGB2Y(255,  0,170); colour_u = CRGB2Cb(255,  0,170); colour_v = CRGB2Cr(255,  0,170); break;
+                case 15: colour_y = CRGB2Y(255,  0,255); colour_u = CRGB2Cb(255,  0,255); colour_v = CRGB2Cr(255,  0,255); break;
+                case 16: colour_y = CRGB2Y(170,  0,255); colour_u = CRGB2Cb(170,  0,255); colour_v = CRGB2Cr(170,  0,255); break;
+                case 17: colour_y = CRGB2Y( 85,  0,255); colour_u = CRGB2Cb( 85,  0,255); colour_v = CRGB2Cr( 85,  0,255); break;
+            }
+
+            int stick_width = 3;
+            int sw;
+            for (sw = 0; sw < stick_width; sw++) {
+                alt_detect_point_t p[2];
+                int pi;
+                for (pi = 0; pi < 2; pi++) {
+                    p[pi].id = cur_line->p[pi].id;
+                    p[pi].x  = cur_line->p[pi].x - (stick_width>>1) + sw;
+                    p[pi].y  = cur_line->p[pi].y - (stick_width>>1) + sw;
+                }
+                long ySize = width * height;
+                long uSize = ySize >> 2;
+                unsigned char *Y = yuv_image;
+                unsigned char *U = Y + ySize;
+                unsigned char *V = U + uSize;
+                // draw on image
+                int x_len = p[1].x - p[0].x;
+                int y_len = p[1].y - p[0].y;
+                int num_steps = MAX(abs(x_len), abs(y_len));
+                double x_step = x_len / ((double)num_steps);
+                double y_step = y_len / ((double)num_steps);
+                double dx = p[0].x;
+                double dy = p[0].y;
+                int s;
+                for (s = 0; s <= num_steps; s++) {
+                    int Yx_pos = (int)dx;
+                    int Yy_pos = (int)dy;
+                    int Yindex = Yy_pos*width+Yx_pos;
+                    alg_clip_pos_to_image_size(&Yx_pos, &Yy_pos, width, height);
+                    int UVx_pos = Yx_pos >> 1;
+                    int UVy_pos = Yy_pos >> 1;
+                    int UVindex = UVy_pos*(width>>1)+UVx_pos;
+                    Y[Yindex]  = colour_y;
+                    U[UVindex] = colour_u;
+                    V[UVindex] = colour_v;
+                    dx += x_step;
+                    dy += y_step;
+                }
+            }
+        }
+    }
+}
+
+
+void alg_draw_alt_detect_result(struct images *imgs,
+                                int width,
+                                int height,
+                                unsigned char *new,
+                                int mode,
+                                int process_thisframe,
+                                alt_detect_result_t *alt_detect_result)
+{
+    unsigned char *images[2];
+    int num_images = 0;
+    images[num_images++] = new;
+    /* Always draw on debug image. */
+    if ((mode == LOCATE_BOTH) && process_thisframe) {
+        images[num_images++] = imgs->img_motion.image_norm;
+    }
+    int i;
+    for (i = 0; i < num_images; i++) {
+        alg_overlay_alt_detect_result(images[i], width, height, alt_detect_result);
+    }
+}
+
 
 
 #define NORM               100

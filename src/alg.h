@@ -11,6 +11,7 @@
 #define _INCLUDE_ALG_H
 
 #include "motion.h"
+#include "alt_detect.h"
 
 struct coord {
     int x;
@@ -34,6 +35,8 @@ struct segment {
 void alg_locate_center_size(struct images *, int width, int height, struct coord *);
 void alg_draw_location(struct coord *, struct images *, int width, unsigned char *, int, int, int);
 void alg_draw_red_location(struct coord *, struct images *, int width, unsigned char *, int, int, int);
+void alg_draw_alt_detect_result(struct images *, int, int, unsigned char *, int,
+                                int, alt_detect_result_t *);
 int alg_diff(struct context *, unsigned char *);
 int alg_diff_standard(struct context *, unsigned char *);
 int alg_lightswitch(struct context *, int diffs);

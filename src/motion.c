@@ -294,6 +294,7 @@ static void context_destroy(struct context *cnt)
 
     /* Free memory allocated for config parameters */
     for (j = 0; config_params[j].param_name != NULL; j++) {
+        alt_detect_dl_free_result(&cnt->alt_detect_result);
         if (config_params[j].copy == copy_string ||
             config_params[j].copy == copy_uri ||
             config_params[j].copy == read_camera_dir) {
@@ -490,8 +491,12 @@ static void motion_detected(struct context *cnt, int dev, struct image_data *img
 
     /* Draw location */
     if (cnt->locate_motion_mode == LOCATE_ON) {
-
-        if (cnt->locate_motion_style == LOCATE_BOX) {
+        if (cnt->alt_detection_enabled) {
+            alg_draw_alt_detect_result(imgs, imgs->width, imgs->height,
+                                       img->image_norm, LOCATE_BOTH,
+                                       cnt->process_thisframe,
+                                       &cnt->alt_detect_result);
+        } else if (cnt->locate_motion_style == LOCATE_BOX) {
             alg_draw_location(location, imgs, imgs->width, img->image_norm, LOCATE_BOX,
                               LOCATE_BOTH, cnt->process_thisframe);
         } else if (cnt->locate_motion_style == LOCATE_REDBOX) {
@@ -1233,6 +1238,10 @@ static int motion_init(struct context *cnt)
     localtime_r(&cnt->currenttime, cnt->currenttime_tm);
 
     cnt->smartmask_speed = 0;
+
+    cnt->alt_detection_enabled = 0;
+    if (alt_detect_dl_initialized())
+        cnt->alt_detection_enabled = cnt->conf.alt_detection_enable;
 
     /*
      * We initialize cnt->event_nr to 1 and cnt->prev_event to 0 (not really needed) so
@@ -2212,6 +2221,18 @@ static void mlp_detection(struct context *cnt){
 
 
     /***** MOTION LOOP - MOTION DETECTION SECTION *****/
+    if (cnt->alt_detection_enabled) {
+        if (cnt->process_thisframe) {
+            // Run alt detection anyway even though the detection threshold is zero
+            if (!cnt->pause) {
+                if (alt_detect_dl_queue_empty()) {
+                    alt_detect_dl_process_yuv420(cnt->imgs.image_vprvcy.image_norm,
+                                                 cnt->imgs.width, cnt->imgs.height);
+                }
+            }
+        }
+        return;
+    }
     /*
      * The actual motion detection takes place in the following
      * diffs is the number of pixels detected as changed
@@ -2330,6 +2351,9 @@ static void mlp_tuning(struct context *cnt){
 
     /***** MOTION LOOP - TUNING SECTION *****/
 
+    if (cnt->alt_detection_enabled)
+        return;
+
     /*
      * If noise tuning was selected, do it now. but only when
      * no frames have been recorded and only once per second
@@ -2430,9 +2454,15 @@ static void mlp_overlay(struct context *cnt){
 
     /* Add changed pixels in upper right corner of the pictures */
     if (cnt->conf.text_changes) {
-        if (!cnt->pause)
-            sprintf(tmp, "%d", cnt->current_image->diffs);
-        else
+        if (!cnt->pause) {
+            if (cnt->alt_detection_enabled) {
+                float score = alt_detect_dl_get_min_score(&cnt->alt_detect_result);
+                if (score < 0)
+                    score = 0;
+                sprintf(tmp, "%d", (int)score);
+            } else
+                sprintf(tmp, "%d", cnt->current_image->diffs);
+        } else
             sprintf(tmp, "-");
 
         draw_text(cnt->current_image->image_norm, cnt->imgs.width, cnt->imgs.height,
@@ -2480,13 +2510,22 @@ static void mlp_actions(struct context *cnt){
 
     /***** MOTION LOOP - ACTIONS AND EVENT CONTROL SECTION *****/
 
-    if ((cnt->current_image->diffs > cnt->threshold) &&
-        (cnt->current_image->diffs < cnt->threshold_maximum)) {
-        /* flag this image, it have motion */
-        cnt->current_image->flags |= IMAGE_MOTION;
-        cnt->lightswitch_framecounter++; /* micro lightswitch */
+    if (cnt->alt_detection_enabled) {
+        if (alt_detect_dl_result_ready()) {
+            int num_results = alt_detect_dl_get_result(cnt->conf.alt_detection_threshold,
+                                                       &cnt->alt_detect_result);
+            if (num_results > 0)
+                cnt->current_image->flags |= IMAGE_MOTION;
+        }
     } else {
-        cnt->lightswitch_framecounter = 0;
+        if ((cnt->current_image->diffs > cnt->threshold) &&
+            (cnt->current_image->diffs < cnt->threshold_maximum)) {
+            /* flag this image, it have motion */
+            cnt->current_image->flags |= IMAGE_MOTION;
+            cnt->lightswitch_framecounter++; /* micro lightswitch */
+        } else {
+            cnt->lightswitch_framecounter = 0;
+        }
     }
 
     /*
@@ -3142,6 +3181,9 @@ static void motion_shutdown(void){
     cnt_list = NULL;
 
     vid_mutex_destroy();
+
+    alt_detect_dl_uninit();
+    alt_detect_dl_unload();
 }
 
 static void motion_camera_ids(void){
@@ -3336,6 +3378,11 @@ static void motion_startup(int daemonize, int argc, char *argv[])
 
     if (cnt_list[0]->conf.setup_mode)
         MOTION_LOG(NTC, TYPE_ALL, NO_ERRNO,_("Motion running in setup mode."));
+
+    if (cnt_list[0]->conf.alt_detection_library) {
+        alt_detect_dl_load(cnt_list[0]->conf.alt_detection_library);
+        alt_detect_dl_init(cnt_list[0]->conf.alt_detection_conf_file);
+    }
 
     conf_output_parms(cnt_list);
 

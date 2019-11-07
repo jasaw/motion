@@ -90,6 +90,10 @@ struct config conf_template = {
 
     /* Motion detection configuration parameters */
     .emulate_motion =                  FALSE,
+    .alt_detection_enable =            FALSE,
+    .alt_detection_library =           NULL,
+    .alt_detection_conf_file =         NULL,
+    .alt_detection_threshold =         0,
     .threshold =                       DEF_CHANGES,
     .threshold_maximum =               0,
     .threshold_tune =                  FALSE,
@@ -655,6 +659,42 @@ config_param config_params[] = {
     CONF_OFFSET(emulate_motion),
     copy_bool,
     print_bool,
+    WEBUI_LEVEL_LIMITED
+    },
+    {
+    "alt_detection_enable",
+    "# Use alternate detection library to detect object or motion.",
+    0,
+    CONF_OFFSET(alt_detection_enable),
+    copy_bool,
+    print_bool,
+    WEBUI_LEVEL_RESTRICTED
+    },
+    {
+    "alt_detection_library",
+    "# Alternate detection library path.",
+    0,
+    CONF_OFFSET(alt_detection_library),
+    copy_string,
+    print_string,
+    WEBUI_LEVEL_NEVER
+    },
+    {
+    "alt_detection_conf_file",
+    "# Alternate detection library specific configuration file.",
+    0,
+    CONF_OFFSET(alt_detection_conf_file),
+    copy_string,
+    print_string,
+    WEBUI_LEVEL_NEVER
+    },
+    {
+    "alt_detection_threshold",
+    "# Alternate detection library threshold or confidence.",
+    0,
+    CONF_OFFSET(alt_detection_threshold),
+    copy_int,
+    print_int,
     WEBUI_LEVEL_LIMITED
     },
     {
@@ -3213,6 +3253,10 @@ static void config_parms_intl(){
         MOTION_LOG(DBG, TYPE_ALL, NO_ERRNO,"%s:%s","text_scale",_("text_scale"));
         MOTION_LOG(DBG, TYPE_ALL, NO_ERRNO,"%s:%s","text_event",_("text_event"));
         MOTION_LOG(DBG, TYPE_ALL, NO_ERRNO,"%s:%s","emulate_motion",_("emulate_motion"));
+        MOTION_LOG(DBG, TYPE_ALL, NO_ERRNO,"%s:%s","alt_detection_enable",_("alt_detection_enable"));
+        MOTION_LOG(DBG, TYPE_ALL, NO_ERRNO,"%s:%s","alt_detection_library",_("alt_detection_library"));
+        MOTION_LOG(DBG, TYPE_ALL, NO_ERRNO,"%s:%s","alt_detection_conf_file",_("alt_detection_conf_file"));
+        MOTION_LOG(DBG, TYPE_ALL, NO_ERRNO,"%s:%s","alt_detection_threshold",_("alt_detection_threshold"));
         MOTION_LOG(DBG, TYPE_ALL, NO_ERRNO,"%s:%s","threshold",_("threshold"));
         MOTION_LOG(DBG, TYPE_ALL, NO_ERRNO,"%s:%s","threshold_maximum",_("threshold_maximum"));
         MOTION_LOG(DBG, TYPE_ALL, NO_ERRNO,"%s:%s","threshold_tune",_("threshold_tune"));

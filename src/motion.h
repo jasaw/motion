@@ -65,6 +65,7 @@ struct image_data;
 #include "netcam.h"
 #include "netcam_rtsp.h"
 #include "ffmpeg.h"
+#include "alt_detect_dl.h"
 
 #ifdef HAVE_MMAL
 #include "mmalcam.h"
@@ -524,6 +525,8 @@ struct context {
     struct stream_data  stream_motion;  /* Copy of the image to use for web stream*/
     struct stream_data  stream_source;  /* Copy of the image to use for web stream*/
 
+    int                 alt_detection_enabled;
+    alt_detect_result_t alt_detect_result;
 
 };
 

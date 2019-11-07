@@ -75,6 +75,10 @@ struct config {
 
     /* Motion detection configuration parameters */
     int             emulate_motion;
+    int             alt_detection_enable;
+    const char      *alt_detection_library;
+    const char      *alt_detection_conf_file;
+    int             alt_detection_threshold;
     int             threshold;
     int             threshold_maximum;
     int             threshold_tune;
