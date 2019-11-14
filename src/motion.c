@@ -2456,10 +2456,13 @@ static void mlp_overlay(struct context *cnt){
     if (cnt->conf.text_changes) {
         if (!cnt->pause) {
             if (cnt->alt_detection_enabled) {
+                double fps = 0;
+                double latency = 0;
+                alt_detect_get_stats(&fps, &latency);
                 float score = alt_detect_dl_get_min_score(&cnt->alt_detect_result);
                 if (score < 0)
                     score = 0;
-                sprintf(tmp, "%d", (int)score);
+                sprintf(tmp, "%.1f, %.1f, %.1f", fps, latency*1000, score);
             } else
                 sprintf(tmp, "%d", cnt->current_image->diffs);
         } else
@@ -2513,6 +2516,8 @@ static void mlp_actions(struct context *cnt){
     if (cnt->alt_detection_enabled) {
         if (alt_detect_dl_result_ready()) {
             int num_results = alt_detect_dl_get_result(cnt->conf.alt_detection_threshold,
+                                                       cnt->imgs.width,
+                                                       cnt->imgs.height,
                                                        &cnt->alt_detect_result);
             if (num_results > 0)
                 cnt->current_image->flags |= IMAGE_MOTION;

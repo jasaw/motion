@@ -52,9 +52,13 @@ extern int alt_detect_init(const char *config_file);
 
 extern void alt_detect_uninit(void);
 
+extern int alt_detect_process_scaled_bgr(unsigned char *image,
+                                         int scaled_width,
+                                         int scaled_height);
+
 // image in YUV420 format
 // return 0 on success
-extern int alt_detect_process_yuv420(unsigned char *image, int width, int height);
+//extern int alt_detect_process_yuv420(unsigned char *image, int width, int height);
 
 extern int alt_detect_queue_empty(void);
 
@@ -62,12 +66,16 @@ extern int alt_detect_result_ready(void);
 
 // caller frees memory by calling alt_detect_free_results
 // alt_detect_result will be initialized
-extern int alt_detect_get_result(alt_detect_result_t *alt_detect_result);
+extern int alt_detect_get_result(float score_threshold, int org_width, int org_height,
+                                 int scaled_width, int scaled_height,
+                                 alt_detect_result_t *alt_detect_result);
 
 // safe to call with null pointer
 extern void alt_detect_free_result(alt_detect_result_t *alt_detect_result);
 
 extern const char *alt_detect_err_msg(void);
+
+extern void alt_detect_get_input_width_height(int *width, int *height);
 
 extern int alt_detect_save_yuv420(unsigned char *image, int width, int height,
                                   const char *filename);
