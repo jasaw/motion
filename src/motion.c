@@ -2462,7 +2462,7 @@ static void mlp_overlay(struct context *cnt){
                 float score = alt_detect_dl_get_min_score(&cnt->alt_detect_result);
                 if (score < 0)
                     score = 0;
-                sprintf(tmp, "%.1f, %.1f, %.1f", fps, latency*1000, score);
+                snprintf(tmp, sizeof(tmp), "fps %.1f, latency %d, score %d", fps, (int)(latency*1000), (int)score);
             } else
                 sprintf(tmp, "%d", cnt->current_image->diffs);
         } else
