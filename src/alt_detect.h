@@ -10,6 +10,8 @@
 #ifndef _ALT_DETECT_H_
 #define _ALT_DETECT_H_
 
+#include <time.h>
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -42,6 +44,7 @@ typedef struct
 {
     alt_detect_obj_t *objs;
     int num_objs;
+    struct timeval timestamp;
 } alt_detect_result_t;
 
 
@@ -51,18 +54,24 @@ extern int alt_detect_init(const char *config_file);
 
 extern void alt_detect_uninit(void);
 
-// image in YUV420 format
+// Insert an image into the processing queue for alternate detection.
+// id        : image source ID. Must be >= 0.
+// timestamp : image timestamp. Set to NULL if not used.
+// image     : image in YUV420 format
+// width     : image width
+// height    : image height
 // return 0 on success
-extern int alt_detect_process_yuv420(unsigned char *image, int width, int height);
+extern int alt_detect_process_yuv420(int id,
+                                     struct timeval *timestamp,
+                                     unsigned char *image,
+                                     int width,
+                                     int height);
 
-extern int alt_detect_queue_empty(void);
-
-extern int alt_detect_result_ready(void);
+extern int alt_detect_result_ready(int id);
 
 // caller frees memory by calling alt_detect_free_results
 // alt_detect_result will be initialized
-extern int alt_detect_get_result(float score_threshold,
-                                 int width, int height,
+extern int alt_detect_get_result(int id, float score_threshold,
                                  alt_detect_result_t *alt_detect_result);
 
 // safe to call with null pointer

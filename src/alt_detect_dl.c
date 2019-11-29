@@ -8,14 +8,11 @@
  */
 #include <stdio.h>
 #include <dlfcn.h>
-#include <time.h>
 
 #include "translate.h"
 #include "logger.h"
 #include "alt_detect_dl.h"
 
-
-#define TIMESTAMP_BUFFER_LENGTH     16
 
 
 typedef struct
@@ -23,17 +20,12 @@ typedef struct
     void *handle;
     int (*alt_detect_init)(const char *);
     void (*alt_detect_uninit)();
-    int (*alt_detect_process_yuv420)(unsigned char *, int, int);
-    int (*alt_detect_result_ready)(void);
-    int (*alt_detect_queue_empty)(void);
-    int (*alt_detect_get_result)(float, int, int, alt_detect_result_t *);
+    int (*alt_detect_process_yuv420)(int, struct timeval *, unsigned char *, int, int);
+    int (*alt_detect_result_ready)(int);
+    int (*alt_detect_get_result)(int, float, alt_detect_result_t *);
     void (*alt_detect_free_result)(alt_detect_result_t *);
     const char *(*alt_detect_err_msg)(void);
     int init;
-    struct timespec request_ts;
-    struct timespec result_ts[TIMESTAMP_BUFFER_LENGTH];
-    struct timespec latency[TIMESTAMP_BUFFER_LENGTH];
-    unsigned int result_ts_index;
 } lib_detect_info;
 
 
@@ -74,26 +66,28 @@ void alt_detect_dl_uninit()
 }
 
 
-int alt_detect_dl_process_yuv420(unsigned char *image, int width, int height)
+int alt_detect_dl_process_yuv420(int id, struct timeval *timestamp,
+                                 unsigned char *image, int width, int height,
+                                 alt_detect_stats_t *stats)
 {
     int ret = 0;
     if (libdetect.handle) {
-        ret = libdetect.alt_detect_process_yuv420(image, width, height);
-        if (ret) {
-            const char *errmsg = libdetect.alt_detect_err_msg();
-            MOTION_LOG(ERR, TYPE_ALL, NO_ERRNO, _("%s"), errmsg);
+        ret = libdetect.alt_detect_process_yuv420(id, timestamp,
+                                                  image, width, height);
+        if (!ret) {
+            if (stats)
+                clock_gettime(CLOCK_MONOTONIC, &stats->request_ts);
         }
-        clock_gettime(CLOCK_MONOTONIC, &libdetect.request_ts);
     }
     return ret;
 }
 
 
-int alt_detect_dl_result_ready(void)
+int alt_detect_dl_result_ready(int id)
 {
     int ret = 0;
     if (libdetect.handle) {
-        ret = libdetect.alt_detect_result_ready();
+        ret = libdetect.alt_detect_result_ready(id);
         if (ret < 0) {
             const char *errmsg = libdetect.alt_detect_err_msg();
             MOTION_LOG(ERR, TYPE_ALL, NO_ERRNO, _("%s"), errmsg);
@@ -104,50 +98,43 @@ int alt_detect_dl_result_ready(void)
 }
 
 
-int alt_detect_dl_queue_empty(void)
+static void alt_detect_profile_store_result_ts(alt_detect_stats_t *stats)
 {
-    if (libdetect.handle)
-        return libdetect.alt_detect_queue_empty();
-    return 0;
-}
-
-
-static void alt_detect_profile_store_result_ts(void)
-{
-    if (clock_gettime(CLOCK_MONOTONIC, &libdetect.result_ts[libdetect.result_ts_index]) == 0)
+    if (clock_gettime(CLOCK_MONOTONIC, &stats->result_ts[stats->result_ts_index]) == 0)
     {
-        libdetect.latency[libdetect.result_ts_index].tv_sec  = libdetect.result_ts[libdetect.result_ts_index].tv_sec - libdetect.request_ts.tv_sec;
-        libdetect.latency[libdetect.result_ts_index].tv_nsec = libdetect.result_ts[libdetect.result_ts_index].tv_nsec - libdetect.request_ts.tv_nsec;
-        //printf("request tv_sec, tv_nsec: %lld.%.09ld\n", (long long)libdetect.request_ts.tv_sec, libdetect.request_ts.tv_nsec);
-        //printf("result  tv_sec, tv_nsec: %lld.%.09ld\n", (long long)libdetect.result_ts[libdetect.result_ts_index].tv_sec, libdetect.result_ts[libdetect.result_ts_index].tv_nsec);
-        //printf("latency tv_sec, tv_nsec: %lld.%.09ld\n", (long long)libdetect.latency[libdetect.result_ts_index].tv_sec, libdetect.latency[libdetect.result_ts_index].tv_nsec);
+        stats->latency[stats->result_ts_index].tv_sec  = stats->result_ts[stats->result_ts_index].tv_sec  - stats->request_ts.tv_sec;
+        stats->latency[stats->result_ts_index].tv_nsec = stats->result_ts[stats->result_ts_index].tv_nsec - stats->request_ts.tv_nsec;
+        //printf("request tv_sec, tv_nsec: %lld.%.09ld\n", (long long)stats->request_ts.tv_sec, stats->request_ts.tv_nsec);
+        //printf("result  tv_sec, tv_nsec: %lld.%.09ld\n", (long long)stats->result_ts[stats->result_ts_index].tv_sec, stats->result_ts[stats->result_ts_index].tv_nsec);
+        //printf("latency tv_sec, tv_nsec: %lld.%.09ld\n", (long long)stats->latency[stats->result_ts_index].tv_sec, stats->latency[stats->result_ts_index].tv_nsec);
 
-        libdetect.result_ts_index++;
-        if (libdetect.result_ts_index >= TIMESTAMP_BUFFER_LENGTH)
-            libdetect.result_ts_index = 0;
+        stats->result_ts_index++;
+        if (stats->result_ts_index >= TIMESTAMP_BUFFER_LENGTH)
+            stats->result_ts_index = 0;
     }
 }
 
 
-void alt_detect_get_stats(double *fps, double *latency)
+void alt_detect_get_stats(alt_detect_stats_t *stats, double *fps, double *latency)
 {
     struct timespec diff;
-    unsigned int oldest_ts_index = libdetect.result_ts_index;
-    unsigned int newest_ts_index = libdetect.result_ts_index - 1;
+    unsigned int oldest_ts_index = stats->result_ts_index;
+    unsigned int newest_ts_index = stats->result_ts_index - 1;
     if (newest_ts_index >= TIMESTAMP_BUFFER_LENGTH)
         newest_ts_index = TIMESTAMP_BUFFER_LENGTH - 1;
-    if ((libdetect.result_ts[newest_ts_index].tv_sec > 0) && (libdetect.result_ts[oldest_ts_index].tv_sec > 0))
+    if ((stats->result_ts[newest_ts_index].tv_sec > 0) &&
+        (stats->result_ts[oldest_ts_index].tv_sec > 0))
     {
-        diff.tv_sec = libdetect.result_ts[newest_ts_index].tv_sec - libdetect.result_ts[oldest_ts_index].tv_sec;
-        diff.tv_nsec = libdetect.result_ts[newest_ts_index].tv_nsec - libdetect.result_ts[oldest_ts_index].tv_nsec;
+        diff.tv_sec  = stats->result_ts[newest_ts_index].tv_sec  - stats->result_ts[oldest_ts_index].tv_sec;
+        diff.tv_nsec = stats->result_ts[newest_ts_index].tv_nsec - stats->result_ts[oldest_ts_index].tv_nsec;
         *fps = TIMESTAMP_BUFFER_LENGTH / (diff.tv_sec + (double)diff.tv_nsec/1.0e9);
 
         long long sum_nsec = 0;
         long long sum_sec = 0;
         int i;
         for (i = 0; i < TIMESTAMP_BUFFER_LENGTH; i++) {
-            sum_nsec += libdetect.latency[i].tv_nsec;
-            sum_sec += libdetect.latency[i].tv_sec;
+            sum_nsec += stats->latency[i].tv_nsec;
+            sum_sec  += stats->latency[i].tv_sec;
         }
         //printf("sum latency tv_sec, tv_nsec: %lld.%.09lld\n", (long long)sum_sec, sum_nsec);
         *latency = (sum_sec + (double)sum_nsec/1.0e9) / TIMESTAMP_BUFFER_LENGTH;
@@ -157,18 +144,21 @@ void alt_detect_get_stats(double *fps, double *latency)
 
 
 // returns number of results, negative for error
-int alt_detect_dl_get_result(float score_threshold, int width, int height,
-                             alt_detect_result_t *alt_detect_result)
+int alt_detect_dl_get_result(int id, float score_threshold,
+                             alt_detect_result_t *alt_detect_result,
+                             alt_detect_stats_t *stats)
 {
     int ret = 0;
     if (libdetect.handle) {
-        ret = libdetect.alt_detect_get_result(score_threshold, width, height,
+        ret = libdetect.alt_detect_get_result(id, score_threshold,
                                               alt_detect_result);
         if (ret < 0) {
             const char *errmsg = libdetect.alt_detect_err_msg();
             MOTION_LOG(ERR, TYPE_ALL, NO_ERRNO, _("%s"), errmsg);
+        } else {
+            if (stats)
+                alt_detect_profile_store_result_ts(stats);
         }
-        alt_detect_profile_store_result_ts();
     }
     return ret;
 }
@@ -228,7 +218,6 @@ int alt_detect_dl_load(const char *lib_detect_path)
     err |= alt_detect_dl_load_sym((void **)(&libdetect.alt_detect_init),   libdetect.handle, "alt_detect_init");
     err |= alt_detect_dl_load_sym((void **)(&libdetect.alt_detect_uninit), libdetect.handle, "alt_detect_uninit");
     err |= alt_detect_dl_load_sym((void **)(&libdetect.alt_detect_process_yuv420), libdetect.handle, "alt_detect_process_yuv420");
-    err |= alt_detect_dl_load_sym((void **)(&libdetect.alt_detect_queue_empty), libdetect.handle, "alt_detect_queue_empty");
     err |= alt_detect_dl_load_sym((void **)(&libdetect.alt_detect_result_ready), libdetect.handle, "alt_detect_result_ready");
     err |= alt_detect_dl_load_sym((void **)(&libdetect.alt_detect_get_result), libdetect.handle, "alt_detect_get_result");
     err |= alt_detect_dl_load_sym((void **)(&libdetect.alt_detect_free_result), libdetect.handle, "alt_detect_free_result");

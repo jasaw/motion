@@ -525,8 +525,10 @@ struct context {
     struct stream_data  stream_motion;  /* Copy of the image to use for web stream*/
     struct stream_data  stream_source;  /* Copy of the image to use for web stream*/
 
+    int                 alt_detect_src_id;
     int                 alt_detection_enabled;
     alt_detect_result_t alt_detect_result;
+    alt_detect_stats_t  alt_detect_stats;
 
 };
 

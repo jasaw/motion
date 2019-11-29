@@ -1242,6 +1242,7 @@ static int motion_init(struct context *cnt)
     cnt->alt_detection_enabled = 0;
     if (alt_detect_dl_initialized())
         cnt->alt_detection_enabled = cnt->conf.alt_detection_enable;
+    memset(&cnt->alt_detect_stats, 0, sizeof(cnt->alt_detect_stats));
 
     /*
      * We initialize cnt->event_nr to 1 and cnt->prev_event to 0 (not really needed) so
@@ -2225,10 +2226,11 @@ static void mlp_detection(struct context *cnt){
         if (cnt->process_thisframe) {
             // Run alt detection anyway even though the detection threshold is zero
             if (!cnt->pause) {
-                if (alt_detect_dl_queue_empty()) {
-                    alt_detect_dl_process_yuv420(cnt->imgs.image_vprvcy.image_norm,
-                                                 cnt->imgs.width, cnt->imgs.height);
-                }
+                alt_detect_dl_process_yuv420(cnt->alt_detect_src_id,
+                                             &cnt->imgs.image_vprvcy.timestamp_tv,
+                                             cnt->imgs.image_vprvcy.image_norm,
+                                             cnt->imgs.width, cnt->imgs.height,
+                                             &cnt->alt_detect_stats);
             }
         }
         return;
@@ -2458,7 +2460,7 @@ static void mlp_overlay(struct context *cnt){
             if (cnt->alt_detection_enabled) {
                 double fps = 0;
                 double latency = 0;
-                alt_detect_get_stats(&fps, &latency);
+                alt_detect_get_stats(&cnt->alt_detect_stats, &fps, &latency);
                 float score = alt_detect_dl_get_min_score(&cnt->alt_detect_result);
                 if (score < 0)
                     score = 0;
@@ -2514,13 +2516,18 @@ static void mlp_actions(struct context *cnt){
     /***** MOTION LOOP - ACTIONS AND EVENT CONTROL SECTION *****/
 
     if (cnt->alt_detection_enabled) {
-        if (alt_detect_dl_result_ready()) {
-            int num_results = alt_detect_dl_get_result(cnt->conf.alt_detection_threshold,
-                                                       cnt->imgs.width,
-                                                       cnt->imgs.height,
-                                                       &cnt->alt_detect_result);
-            if (num_results > 0)
+        if (alt_detect_dl_result_ready(cnt->alt_detect_src_id)) {
+            // TODO: get result, but discard it if it has a timestamp earlier
+            //       than our last result timestamp.
+            int num_results = alt_detect_dl_get_result(cnt->alt_detect_src_id,
+                                                       cnt->conf.alt_detection_threshold,
+                                                       &cnt->alt_detect_result,
+                                                       &cnt->alt_detect_stats);
+            if (num_results > 0) {
+                // TODO: Only mark image as motion if object falls within
+                //       detection area, i.e. apply detection/privacy mask first
                 cnt->current_image->flags |= IMAGE_MOTION;
+            }
         }
     } else {
         if ((cnt->current_image->diffs > cnt->threshold) &&
@@ -3705,8 +3712,11 @@ int main (int argc, char **argv)
     do {
         if (restart) motion_restart(argc, argv);
 
+        int src_id = 0;
         for (i = cnt_list[1] != NULL ? 1 : 0; cnt_list[i]; i++) {
             cnt_list[i]->threadnr = i ? i : 1;
+            cnt_list[i]->alt_detect_src_id = src_id;
+            src_id++;
             motion_start_thread(cnt_list[i]);
         }
 
