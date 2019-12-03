@@ -102,12 +102,6 @@ static void alt_detect_profile_store_result_ts(alt_detect_stats_t *stats)
 {
     if (clock_gettime(CLOCK_MONOTONIC, &stats->result_ts[stats->result_ts_index]) == 0)
     {
-        stats->latency[stats->result_ts_index].tv_sec  = stats->result_ts[stats->result_ts_index].tv_sec  - stats->request_ts.tv_sec;
-        stats->latency[stats->result_ts_index].tv_nsec = stats->result_ts[stats->result_ts_index].tv_nsec - stats->request_ts.tv_nsec;
-        //printf("request tv_sec, tv_nsec: %lld.%.09ld\n", (long long)stats->request_ts.tv_sec, stats->request_ts.tv_nsec);
-        //printf("result  tv_sec, tv_nsec: %lld.%.09ld\n", (long long)stats->result_ts[stats->result_ts_index].tv_sec, stats->result_ts[stats->result_ts_index].tv_nsec);
-        //printf("latency tv_sec, tv_nsec: %lld.%.09ld\n", (long long)stats->latency[stats->result_ts_index].tv_sec, stats->latency[stats->result_ts_index].tv_nsec);
-
         stats->result_ts_index++;
         if (stats->result_ts_index >= TIMESTAMP_BUFFER_LENGTH)
             stats->result_ts_index = 0;
@@ -115,7 +109,7 @@ static void alt_detect_profile_store_result_ts(alt_detect_stats_t *stats)
 }
 
 
-void alt_detect_get_stats(alt_detect_stats_t *stats, double *fps, double *latency)
+void alt_detect_get_stats(alt_detect_stats_t *stats, double *fps)
 {
     struct timespec diff;
     unsigned int oldest_ts_index = stats->result_ts_index;
@@ -128,17 +122,6 @@ void alt_detect_get_stats(alt_detect_stats_t *stats, double *fps, double *latenc
         diff.tv_sec  = stats->result_ts[newest_ts_index].tv_sec  - stats->result_ts[oldest_ts_index].tv_sec;
         diff.tv_nsec = stats->result_ts[newest_ts_index].tv_nsec - stats->result_ts[oldest_ts_index].tv_nsec;
         *fps = TIMESTAMP_BUFFER_LENGTH / (diff.tv_sec + (double)diff.tv_nsec/1.0e9);
-
-        long long sum_nsec = 0;
-        long long sum_sec = 0;
-        int i;
-        for (i = 0; i < TIMESTAMP_BUFFER_LENGTH; i++) {
-            sum_nsec += stats->latency[i].tv_nsec;
-            sum_sec  += stats->latency[i].tv_sec;
-        }
-        //printf("sum latency tv_sec, tv_nsec: %lld.%.09lld\n", (long long)sum_sec, sum_nsec);
-        *latency = (sum_sec + (double)sum_nsec/1.0e9) / TIMESTAMP_BUFFER_LENGTH;
-        //printf("sum latency %fs\n", *latency);
     }
 }
 

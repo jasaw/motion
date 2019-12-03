@@ -2463,12 +2463,11 @@ static void mlp_overlay(struct context *cnt){
         if (!cnt->pause) {
             if (cnt->alt_detection_enabled) {
                 double fps = 0;
-                double latency = 0;
-                alt_detect_get_stats(&cnt->alt_detect_stats, &fps, &latency);
+                alt_detect_get_stats(&cnt->alt_detect_stats, &fps);
                 float score = alt_detect_dl_get_min_score(&cnt->alt_detect_result);
                 if (score < 0)
                     score = 0;
-                snprintf(tmp, sizeof(tmp), "fps %.1f, latency %d, score %d", fps, (int)(latency*1000), (int)score);
+                snprintf(tmp, sizeof(tmp), "fps %.1f, num objs %d, score %d", fps, cnt->alt_detect_result.num_objs, (int)score);
             } else
                 sprintf(tmp, "%d", cnt->current_image->diffs);
         } else

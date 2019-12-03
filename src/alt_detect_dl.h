@@ -45,7 +45,7 @@ int alt_detect_dl_get_result(int id, float score_threshold,
 float alt_detect_dl_get_min_score(alt_detect_result_t *alt_detect_result);
 void alt_detect_dl_free_result(alt_detect_result_t *alt_detect_result);
 
-void alt_detect_get_stats(alt_detect_stats_t *stats, double *fps, double *latency);
+void alt_detect_get_stats(alt_detect_stats_t *stats, double *fps);
 
 
 #endif /* _ALT_DETECT_DL_H */
