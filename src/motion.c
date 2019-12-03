@@ -2516,7 +2516,7 @@ static void mlp_actions(struct context *cnt){
     /***** MOTION LOOP - ACTIONS AND EVENT CONTROL SECTION *****/
 
     if (cnt->alt_detection_enabled) {
-        if (alt_detect_dl_result_ready(cnt->alt_detect_src_id)) {
+        while (alt_detect_dl_result_ready(cnt->alt_detect_src_id)) {
             // TODO: get result, but discard it if it has a timestamp earlier
             //       than our last result timestamp.
             int num_results = alt_detect_dl_get_result(cnt->alt_detect_src_id,
@@ -2526,6 +2526,8 @@ static void mlp_actions(struct context *cnt){
             if (num_results > 0) {
                 // TODO: Only mark image as motion if object falls within
                 //       detection area, i.e. apply detection/privacy mask first
+                // NOTE: Need special care when dealing with object points/lines
+                //       as they may fall outside the image region.
                 cnt->current_image->flags |= IMAGE_MOTION;
             }
         }
