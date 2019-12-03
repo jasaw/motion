@@ -1878,11 +1878,15 @@ static void mlp_prepare(struct context *cnt){
      * Calculate detection rate limit. Above 5fps we limit the detection
      * rate to 3fps to reduce load at higher framerates.
      */
-    cnt->process_thisframe = 0;
-    cnt->rate_limit++;
-    if (cnt->rate_limit >= (cnt->lastrate / 3)) {
-        cnt->rate_limit = 0;
+    if (cnt->alt_detection_enabled)
         cnt->process_thisframe = 1;
+    else {
+        cnt->process_thisframe = 0;
+        cnt->rate_limit++;
+        if (cnt->rate_limit >= (cnt->lastrate / 3)) {
+            cnt->rate_limit = 0;
+            cnt->process_thisframe = 1;
+        }
     }
 
     /*
