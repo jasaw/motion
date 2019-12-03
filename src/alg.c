@@ -352,15 +352,73 @@ void alg_draw_red_location(struct coord *cent, struct images *imgs, int width, u
     }
 }
 
-static inline int alg_point_within_range(int *xpos, int *ypos, int width, int height)
+
+static inline int alg_point_within_range(int xpos, int ypos, int width, int height)
 {
-    if ((*xpos < 0) || (*xpos > width - 1) ||
-        (*ypos < 0) || (*ypos > height - 1))
+    if ((xpos < 0) || (xpos > width - 1) ||
+        (ypos < 0) || (ypos > height - 1))
         return 0;
     return 1;
 }
 
-static void alg_overlay_alt_detect_result(unsigned char *yuv_image,
+
+static inline void alg_put_pixel(unsigned char **yuv_images,
+                                 int num_images,
+                                 int width,
+                                 int height,
+                                 unsigned char colour_y,
+                                 unsigned char colour_u,
+                                 unsigned char colour_v,
+                                 int x,
+                                 int y)
+{
+    if (alg_point_within_range(x, y, width, height)) {
+        long ySize = width * height;
+        long uSize = ySize >> 2;
+        int Yindex = y*width+x;
+        int UVx_pos = x >> 1;
+        int UVy_pos = y >> 1;
+        int UVindex = UVy_pos*(width>>1)+UVx_pos;
+        int i;
+        for (i = 0; i < num_images; i++) {
+            unsigned char *Y = yuv_images[i];
+            unsigned char *U = Y + ySize;
+            unsigned char *V = U + uSize;
+            Y[Yindex]  = colour_y;
+            U[UVindex] = colour_u;
+            V[UVindex] = colour_v;
+        }
+    }
+}
+
+
+static inline void alg_bresenham_draw_line(unsigned char **yuv_images,
+                                           int num_images,
+                                           int width,
+                                           int height,
+                                           unsigned char colour_y,
+                                           unsigned char colour_u,
+                                           unsigned char colour_v,
+                                           int x0, int y0, int x1, int y1)
+{
+    int dx = abs(x1-x0), sx = x0<x1 ? 1 : -1;
+    int dy = abs(y1-y0), sy = y0<y1 ? 1 : -1;
+    int err = (dx>dy ? dx : -dy)/2;
+    int e2;
+
+    for(;;) {
+        alg_put_pixel(yuv_images, num_images, width, height,
+                      colour_y, colour_u, colour_v, x0, y0);
+        if (x0==x1 && y0==y1) break;
+        e2 = err;
+        if (e2 >-dx) { err -= dy; x0 += sx; }
+        if (e2 < dy) { err += dx; y0 += sy; }
+    }
+}
+
+
+static void alg_overlay_alt_detect_result(unsigned char **yuv_images,
+                                          int num_images,
                                           int width,
                                           int height,
                                           alt_detect_result_t *alt_detect_result)
@@ -398,46 +456,12 @@ static void alg_overlay_alt_detect_result(unsigned char *yuv_image,
                 case 17: colour_y = CRGB2Y( 85,  0,255); colour_u = CRGB2Cb( 85,  0,255); colour_v = CRGB2Cr( 85,  0,255); break;
             }
 
-            int stick_width = 3;
-            int sw;
-            for (sw = 0; sw < stick_width; sw++) {
-                alt_detect_point_t p[2];
-                int pi;
-                for (pi = 0; pi < 2; pi++) {
-                    p[pi].id = cur_line->p[pi].id;
-                    p[pi].x  = cur_line->p[pi].x - (stick_width>>1) + sw;
-                    p[pi].y  = cur_line->p[pi].y - (stick_width>>1) + sw;
-                }
-                long ySize = width * height;
-                long uSize = ySize >> 2;
-                unsigned char *Y = yuv_image;
-                unsigned char *U = Y + ySize;
-                unsigned char *V = U + uSize;
-                // draw on image
-                int x_len = p[1].x - p[0].x;
-                int y_len = p[1].y - p[0].y;
-                int num_steps = MAX(abs(x_len), abs(y_len));
-                double x_step = x_len / ((double)num_steps);
-                double y_step = y_len / ((double)num_steps);
-                double dx = p[0].x;
-                double dy = p[0].y;
-                int s;
-                for (s = 0; s <= num_steps; s++) {
-                    int Yx_pos = (int)dx;
-                    int Yy_pos = (int)dy;
-                    int Yindex = Yy_pos*width+Yx_pos;
-                    if (alg_point_within_range(&Yx_pos, &Yy_pos, width, height)) {
-                        int UVx_pos = Yx_pos >> 1;
-                        int UVy_pos = Yy_pos >> 1;
-                        int UVindex = UVy_pos*(width>>1)+UVx_pos;
-                        Y[Yindex]  = colour_y;
-                        U[UVindex] = colour_u;
-                        V[UVindex] = colour_v;
-                    }
-                    dx += x_step;
-                    dy += y_step;
-                }
-            }
+            int x0 = cur_line->p[0].x;
+            int y0 = cur_line->p[0].y;
+            int x1 = cur_line->p[1].x;
+            int y1 = cur_line->p[1].y;
+            alg_bresenham_draw_line(yuv_images, num_images, width, height,
+                                    colour_y, colour_u, colour_v, x0, y0, x1, y1);
         }
     }
 }
@@ -458,10 +482,7 @@ void alg_draw_alt_detect_result(struct images *imgs,
     if ((mode == LOCATE_BOTH) && process_thisframe) {
         images[num_images++] = imgs->img_motion.image_norm;
     }
-    int i;
-    for (i = 0; i < num_images; i++) {
-        alg_overlay_alt_detect_result(images[i], width, height, alt_detect_result);
-    }
+    alg_overlay_alt_detect_result(images, num_images, width, height, alt_detect_result);
 }
 
 
